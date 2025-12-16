@@ -13,6 +13,8 @@ from src.logic.sync_engine import SyncManager
 from src.logic.scoring import ScoringEngine
 from src.ui.leaderboard_widget import LeaderboardWidget
 from src.ui.review_dialog import PicksReviewDialog
+from src.api.odds import TheOddsAPI
+from PyQt6.QtCore import QSettings
 
 class ClickableLabel(QLabel):
     """QLabel that emits clicked signal when clicked."""
@@ -39,14 +41,16 @@ class GameCard(QFrame):
     spreadEditRequested = pyqtSignal(int)  # game_id
     ouClicked = pyqtSignal(int, str, int)  # (game_id, "Over"/"Under", picker_id)
     betAmountChanged = pyqtSignal(int, float) # game_id, new_amount
+    newSpreadAccepted = pyqtSignal(int, float) # game_id, new_spread
     
-    def __init__(self, game_data, team1, team2, odds=None, picker_id=None, picker_name=None,
+    def __init__(self, game_data, team1, team2, odds=None, new_odds=None, picker_id=None, picker_name=None,
                  picks_dict=None, person_names=None, db_manager=None, bet_amount=0.0, show_bet_amount=True):
         super().__init__()
         self.game_data = game_data
         self.team1 = team1
         self.team2 = team2
         self.odds = odds
+        self.new_odds = new_odds
         self.picker_id = picker_id
         self.picker_name = picker_name
         self.picks_dict = picks_dict or {}
@@ -307,13 +311,14 @@ class GameCard(QFrame):
             if s2 > s1:
                 t2_btn.setStyleSheet(t2_btn.styleSheet() + "QPushButton { font-weight: bold; }")
         
-        # Use grid layout for perfect alignment
         teams_grid = QGridLayout()
         teams_grid.setHorizontalSpacing(8)  # Space between columns
         teams_grid.setVerticalSpacing(2)    # Space between rows
         teams_grid.setColumnStretch(0, 0)   # Team name - don't stretch
         teams_grid.setColumnStretch(1, 0)   # Bettor - don't stretch
         teams_grid.setColumnStretch(2, 0)   # Score - don't stretch
+        teams_grid.setColumnStretch(3, 1)   # New Spread Info - stretch
+        teams_grid.setColumnStretch(4, 0)   # Accept Button - don't stretch
         
         teams_grid.addWidget(t1_btn, 0, 0)
         teams_grid.addWidget(t1_bettor_lbl, 0, 1)
@@ -323,6 +328,41 @@ class GameCard(QFrame):
         teams_grid.addWidget(t2_bettor_lbl, 1, 1)
         teams_grid.addWidget(t2_score, 1, 2)
         
+        # New odds section (moved into the grid)
+        if self.new_odds and self.new_odds.spread_team1 is not None and self.odds and self.odds.spread_team1 is not None:
+            new_spread_val = self.new_odds.spread_team1
+            
+            new_spread_str = f"New Spread: {new_spread_val:+}"
+            if self.odds and self.odds.spread_team1 is not None:
+                new_spread_str += f" (vs {self.odds.spread_team1:+})"
+            
+            new_spread_label = QLabel(new_spread_str)
+            new_spread_label.setStyleSheet("font-size: 11px; color: #888; font-style: italic;")
+            
+            # Warning emoji logic corrected: shows when difference is GREATER than 3
+            warning_label = QLabel("")
+            if abs(new_spread_val - self.odds.spread_team1) > 3: # Corrected condition
+                warning_label.setText("⚠️")
+                warning_label.setToolTip("Spread changed by more than 3 points")
+                warning_label.setStyleSheet("font-size: 14px;")
+            
+            accept_button = QPushButton("Accept")
+            accept_button.setStyleSheet("font-size: 10px; padding: 2px 5px; max-width: 60px;")
+            accept_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            accept_button.clicked.connect(lambda: self.newSpreadAccepted.emit(self.game_data.id, new_spread_val))
+            
+            new_spread_info_layout = QHBoxLayout()
+            new_spread_info_layout.addWidget(new_spread_label)
+            new_spread_info_layout.addWidget(warning_label)
+            new_spread_info_layout.addStretch()
+
+            teams_grid.addLayout(new_spread_info_layout, 0, 3, 1, 1) # Row 0, Col 3, span 1 row, 1 col
+            teams_grid.addWidget(accept_button, 0, 4, 1, 1) # Row 0, Col 4, span 1 row, 1 col
+            
+            # Add placeholders for row 1 in new columns to maintain alignment
+            teams_grid.addWidget(QLabel(""), 1, 3) 
+            teams_grid.addWidget(QLabel(""), 1, 4)
+
         # Wrap grid in HBoxLayout to keep it on the left
         teams_container = QHBoxLayout()
         teams_container.addLayout(teams_grid)
@@ -476,6 +516,7 @@ class DashboardWidget(QWidget):
         self.person_names = {}
         self.game_pickers = {}  # {game_id: person_id}
         self.game_bet_overrides = {}  # {game_id: amount}
+        self.new_odds = {} # {game_id: Odds}
         
         self._init_ui()
         self.load_data()
@@ -541,6 +582,10 @@ class DashboardWidget(QWidget):
         review_btn.clicked.connect(self.open_review_dialog)
         button_layout.addWidget(review_btn)
         
+        accept_all_btn = QPushButton("Accept All New Spreads")
+        accept_all_btn.clicked.connect(self.on_accept_all_new_spreads)
+        button_layout.addWidget(accept_all_btn)
+        
         main_layout.addLayout(button_layout)
         
         # Status Bar
@@ -559,6 +604,11 @@ class DashboardWidget(QWidget):
         
         # Initialize Sidebar Data
         self.refresh_sidebar()
+    
+    def on_accept_all_new_spreads(self):
+        for game_id, new_odds in self.new_odds.items():
+            if new_odds and new_odds.spread_team1 is not None:
+                self.on_new_spread_accepted(game_id, new_odds.spread_team1)
     
     def refresh_sidebar(self):
         self.series_tree.clear()
@@ -596,10 +646,15 @@ class DashboardWidget(QWidget):
         def on_progress(msg):
             self.status_bar.setText(f"Syncing: {msg}")
         
-        def on_finished(success, msg):
+        def on_finished(success, msg, new_odds):
             if success:
                 self.status_bar.setText("Sync successful! Data updated.")
                 self.status_bar.setStyleSheet("color: green; padding: 5px;")
+                
+                self.new_odds.clear()
+                for odds in new_odds:
+                    self.new_odds[odds.bowl_game_id] = odds
+                    
                 self.load_data(show_status=False)
             else:
                 self.status_bar.setText(f"Sync failed: {msg}")
@@ -698,8 +753,7 @@ class DashboardWidget(QWidget):
                      
                      if "championship" in tier_lower or ("championship" in name_lower and "cfp" in name_lower):
                          bet_amount = series.default_bet_amount_championship
-                     elif any(x in tier_lower for x in ["semifinal", "quarterfinal", "first round", "playoff"]) or \
-                          any(x in name_lower for x in ["semifinal", "quarterfinal", "first round", "playoff"]):
+                     elif "cfp" in tier_lower or "playoff" in name_lower or any(x in tier_lower for x in ["semifinal", "quarterfinal", "first round"]):
                          bet_amount = series.default_bet_amount_cfp_semi
                      else:
                          bet_amount = series.default_bet_amount_regular
@@ -707,12 +761,13 @@ class DashboardWidget(QWidget):
                     bet_amount = 0.0
             
             show_bet_amount = self.active_series_id is not None
-            card = GameCard(game, t1, t2, odds, picker_id, picker_name, game_picks, self.person_names, self.db_manager, bet_amount, show_bet_amount)
+            card = GameCard(game, t1, t2, odds, self.new_odds.get(game.id), picker_id, picker_name, game_picks, self.person_names, self.db_manager, bet_amount, show_bet_amount)
             card.teamClicked.connect(self.on_team_clicked)
             card.pickerToggled.connect(self.on_picker_toggled)
             card.spreadEditRequested.connect(self.on_spread_edit_requested)
             card.ouClicked.connect(self.on_ou_clicked)
             card.betAmountChanged.connect(self.on_bet_amount_changed)
+            card.newSpreadAccepted.connect(self.on_new_spread_accepted)
             self.games_layout.addWidget(card)
         
         if show_status:
@@ -985,7 +1040,41 @@ class DashboardWidget(QWidget):
             self.status_bar.setText(f"Spread updated to {spread:+}")
             self.status_bar.setStyleSheet("color: green; padding: 5px;")
             self.load_data(show_status=False)
-    
+            
+    def on_new_spread_accepted(self, game_id, new_spread):
+        if not self.active_series_id:
+            return
+        
+        try:
+            # Update the odds in the database
+            self.odds_repo.update_odds(game_id, new_spread, None)
+
+            # For the team that is picked, we need to adjust the spread.
+            # The new_spread is for team1. So if the pick is for team2, the spread should be inverted.
+            
+            picks = self.pick_repo.get_picks_for_game(self.active_series_id, game_id)
+            if not picks:
+                return
+                
+            game = self.game_repo.get_by_id(game_id)
+            
+            for pick in picks:
+                if pick.picked_team_id == game.team1_id:
+                    self.pick_repo.update_pick_line(pick.id, new_spread)
+                else:
+                    self.pick_repo.update_pick_line(pick.id, -new_spread)
+
+            # Clear the new odds for this game
+            if game_id in self.new_odds:
+                del self.new_odds[game_id]
+            
+            self.status_bar.setText(f"Spread updated for game {game.game_name}.")
+            self.status_bar.setStyleSheet("color: green; padding: 5px;")
+            self.load_data(show_status=False)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to accept new spread: {str(e)}")
+
     def set_active_series(self, series_id, person_id=None):
         self.active_series_id = series_id
         

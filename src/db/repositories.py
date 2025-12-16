@@ -296,6 +296,27 @@ class PickRepository:
         rows = cursor.fetchall()
         return [Pick(**dict(row)) for row in rows]
     
+    def get_picks_for_game(self, series_id: int, game_id: int) -> list[Pick]:
+        """Get all picks for a specific game in a series."""
+        cursor = self.db.get_connection().cursor()
+        cursor.execute("""
+            SELECT * FROM Pick 
+            WHERE betting_series_id = ? AND bowl_game_id = ?
+        """, (series_id, game_id))
+        rows = cursor.fetchall()
+        return [Pick(**dict(row)) for row in rows]
+    
+    def update_pick_line(self, pick_id: int, new_line: float):
+        """Update the line for a specific pick."""
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE Pick 
+            SET line_at_pick = ?, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = ?
+        """, (new_line, pick_id))
+        conn.commit()
+    
     def get_pick_for_game(self, series_id: int, person_id: int, game_id: int) -> Optional[Pick]:
         """Get a specific person's pick for a game in a series."""
         cursor = self.db.get_connection().cursor()

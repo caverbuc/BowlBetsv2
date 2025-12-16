@@ -12,7 +12,7 @@ class SyncWorker(QObject):
     Worker class to run sync in a separate thread.
     """
     progress = pyqtSignal(str)
-    finished = pyqtSignal(bool, str) # success, message
+    finished = pyqtSignal(bool, str, list) # success, message, new_odds
 
     def __init__(self, db_path: str):
         super().__init__()
@@ -79,10 +79,19 @@ class SyncWorker(QObject):
                     # Determine Tier (Simplified logic)
                     tier = "Regular"
                     notes = g.get('notes', '').lower() if g.get('notes') else ''
-                    if 'semifinal' in notes or 'semi-final' in notes:
-                        tier = "CFP Semifinal"
-                    elif 'championship' in notes and 'national' in notes:
+                    name_lower = g.get('game_name', '').lower() if g.get('game_name') else ''
+
+                    if 'championship' in notes or 'championship' in name_lower:
                         tier = "Championship"
+                    elif 'semifinal' in notes or 'semi-final' in notes or 'semifinal' in name_lower or 'semi-final' in name_lower:
+                        tier = "CFP Semifinal"
+                    elif 'quarterfinal' in notes or 'quarter-final' in notes or 'quarterfinal' in name_lower or 'quarter-final' in name_lower:
+                        tier = "CFP Quarterfinal"
+                    elif 'first round' in notes or 'first round' in name_lower:
+                        tier = "CFP First Round"
+                    elif 'playoff' in notes or 'playoff' in name_lower:
+                        tier = "CFP"
+
                     
                     # Upsert Game
                     self.game_repo.upsert(
@@ -100,6 +109,7 @@ class SyncWorker(QObject):
                     )
 
             # 3. Sync Odds
+            new_odds_list = []
             if odds_api:
                 self.progress.emit("Fetching Odds from TheOddsAPI...")
                 odds_events = odds_api.get_odds()
@@ -187,19 +197,21 @@ class SyncWorker(QObject):
                                     ou_val = totals['outcomes'][0]['point']
                             
                             if sp_val is not None or ou_val is not None:
-                                self.odds_repo.update_odds(matched_game.id, sp_val, ou_val)
+                                # Instead of updating the DB, add to the list
+                                from src.db.models import Odds
+                                new_odds_list.append(Odds(id=None, bowl_game_id=matched_game.id, spread_team1=sp_val, over_under=ou_val))
                                 mapped_count += 1
 
                 self.progress.emit(f"Odds synced from {bookmaker_name if bookmakers else 'API'}. Matched {mapped_count} games.")
             else:
                 self.progress.emit("No Odds API Key provided. Skipping odds.")
 
-            self.finished.emit(True, "Sync Completed Successfully.")
+            self.finished.emit(True, "Sync Completed Successfully.", new_odds_list)
 
         except Exception as e:
             import traceback
             traceback.print_exc()
-            self.finished.emit(False, f"Sync Failed: {str(e)}")
+            self.finished.emit(False, f"Sync Failed: {str(e)}", [])
 
 class SyncManager:
     """
