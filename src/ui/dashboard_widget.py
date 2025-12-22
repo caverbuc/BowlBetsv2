@@ -110,7 +110,6 @@ class GameCard(QFrame):
         date_lbl = QLabel(display_date)
         date_lbl.setStyleSheet("color: gray; font-size: 10px;")
         
-        header_layout.addWidget(game_name)
         header_layout.addStretch()
         header_layout.addWidget(date_lbl)
         layout.addLayout(header_layout)
@@ -574,10 +573,6 @@ class DashboardWidget(QWidget):
         sync_btn.clicked.connect(self.start_sync)
         button_layout.addWidget(sync_btn)
         
-        refresh_btn = QPushButton("Refresh Display (Reload from Database)")
-        refresh_btn.clicked.connect(self.load_data)
-        button_layout.addWidget(refresh_btn)
-        
         review_btn = QPushButton("Review / Edit Picks")
         review_btn.clicked.connect(self.open_review_dialog)
         button_layout.addWidget(review_btn)
@@ -636,8 +631,7 @@ class DashboardWidget(QWidget):
     def _on_sidebar_item_clicked(self, item, column):
         series_id = item.data(0, Qt.ItemDataRole.UserRole)
         if series_id:
-            self.active_series_id = series_id
-            self.load_data()
+            self.set_active_series(series_id)
     
     def start_sync(self):
         self.status_bar.setText("Syncing from APIs...")
