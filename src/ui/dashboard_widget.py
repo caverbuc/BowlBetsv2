@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QScrollArea, QFrame, QGridLayout, QPushButton, QMessageBox,
                              QInputDialog, QTreeWidget, QTreeWidgetItem, QSplitter)
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
-from PyQt6.QtGui import QFont, QCursor
+from PyQt6.QtGui import QFont, QCursor, QPixmap
 from datetime import datetime, timezone, timedelta
 import dateutil.parser
 
@@ -14,6 +14,7 @@ from src.logic.scoring import ScoringEngine
 from src.ui.leaderboard_widget import LeaderboardWidget
 from src.ui.review_dialog import PicksReviewDialog
 from src.api.odds import TheOddsAPI
+from src.ui.image_cache import ImageCache
 from PyQt6.QtCore import QSettings
 
 class ClickableLabel(QLabel):
@@ -44,7 +45,7 @@ class GameCard(QFrame):
     newSpreadAccepted = pyqtSignal(int, float) # game_id, new_spread
     
     def __init__(self, game_data, team1, team2, odds=None, new_odds=None, picker_id=None, picker_name=None,
-                 picks_dict=None, person_names=None, db_manager=None, bet_amount=0.0, show_bet_amount=True):
+                 picks_dict=None, person_names=None, db_manager=None, bet_amount=0.0, show_bet_amount=True, image_cache=None):
         super().__init__()
         self.game_data = game_data
         self.team1 = team1
@@ -58,6 +59,7 @@ class GameCard(QFrame):
         self.db_manager = db_manager
         self.bet_amount = bet_amount
         self.show_bet_amount = show_bet_amount
+        self.image_cache = image_cache
         
         self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
         self.setLineWidth(1)
@@ -189,6 +191,12 @@ class GameCard(QFrame):
         t1_spread_str = f" ({spread_val:+})" if spread_val is not None else ""
         t1_name = (self.team1.canonical_name if self.team1 else "Unknown") + t1_spread_str
         
+        t1_logo = QLabel()
+        if self.team1 and self.team1.logo_url and self.image_cache:
+            pixmap = self.image_cache.get_pixmap(self.team1.logo_url)
+            if pixmap:
+                t1_logo.setPixmap(pixmap.scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        
         t1_btn = QPushButton(t1_name)
         t1_btn.setStyleSheet("""
             QPushButton {
@@ -206,6 +214,10 @@ class GameCard(QFrame):
         t1_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         if self.picker_id:
             t1_btn.clicked.connect(lambda: self._on_team_clicked(self.team1.id))
+        
+        t1_layout = QHBoxLayout()
+        t1_layout.addWidget(t1_logo)
+        t1_layout.addWidget(t1_btn)
         
         # Find who picked team1
         t1_bettor = ""
@@ -252,6 +264,12 @@ class GameCard(QFrame):
         t2_spread_str = f" ({-spread_val:+})" if spread_val is not None else ""
         t2_name = (self.team2.canonical_name if self.team2 else "Unknown") + t2_spread_str
         
+        t2_logo = QLabel()
+        if self.team2 and self.team2.logo_url and self.image_cache:
+            pixmap = self.image_cache.get_pixmap(self.team2.logo_url)
+            if pixmap:
+                t2_logo.setPixmap(pixmap.scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+
         t2_btn = QPushButton(t2_name)
         t2_btn.setStyleSheet("""
             QPushButton {
@@ -270,6 +288,10 @@ class GameCard(QFrame):
         if self.picker_id:
             t2_btn.clicked.connect(lambda: self._on_team_clicked(self.team2.id))
         
+        t2_layout = QHBoxLayout()
+        t2_layout.addWidget(t2_logo)
+        t2_layout.addWidget(t2_btn)
+
         # Find who picked team2
         t2_bettor = ""
         t2_result = None
@@ -319,11 +341,11 @@ class GameCard(QFrame):
         teams_grid.setColumnStretch(3, 1)   # New Spread Info - stretch
         teams_grid.setColumnStretch(4, 0)   # Accept Button - don't stretch
         
-        teams_grid.addWidget(t1_btn, 0, 0)
+        teams_grid.addLayout(t1_layout, 0, 0)
         teams_grid.addWidget(t1_bettor_lbl, 0, 1)
         teams_grid.addWidget(t1_score, 0, 2)
         
-        teams_grid.addWidget(t2_btn, 1, 0)
+        teams_grid.addLayout(t2_layout, 1, 0)
         teams_grid.addWidget(t2_bettor_lbl, 1, 1)
         teams_grid.addWidget(t2_score, 1, 2)
         
@@ -507,6 +529,7 @@ class DashboardWidget(QWidget):
         self.scoring_engine = ScoringEngine(self.pick_repo, self.game_repo)
         self.series_repo = BettingSeriesRepository(db_manager)
         self.person_repo = PersonRepository(db_manager)
+        self.image_cache = ImageCache()
         
         self.current_season_year = 2025
         self.active_series_id = None
@@ -755,7 +778,7 @@ class DashboardWidget(QWidget):
                     bet_amount = 0.0
             
             show_bet_amount = self.active_series_id is not None
-            card = GameCard(game, t1, t2, odds, self.new_odds.get(game.id), picker_id, picker_name, game_picks, self.person_names, self.db_manager, bet_amount, show_bet_amount)
+            card = GameCard(game, t1, t2, odds, self.new_odds.get(game.id), picker_id, picker_name, game_picks, self.person_names, self.db_manager, bet_amount, show_bet_amount, self.image_cache)
             card.teamClicked.connect(self.on_team_clicked)
             card.pickerToggled.connect(self.on_picker_toggled)
             card.spreadEditRequested.connect(self.on_spread_edit_requested)

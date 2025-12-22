@@ -156,3 +156,11 @@ class DatabaseManager:
         if 'is_originator' not in columns:
             print("Migrating: Adding is_originator to Pick table")
             cursor.execute("ALTER TABLE Pick ADD COLUMN is_originator BOOLEAN NOT NULL DEFAULT 0")
+
+        # Check Team table columns for logo_url
+        cursor.execute("PRAGMA table_info(Team)")
+        columns = [info[1] for info in cursor.fetchall()]
+
+        if 'logo_url' not in columns:
+            print("Migrating: Adding logo_url to Team table")
+            cursor.execute("ALTER TABLE Team ADD COLUMN logo_url TEXT")

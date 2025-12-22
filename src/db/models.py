@@ -20,6 +20,7 @@ class Team:
     canonical_name: str
     short_name: str
     mascot: Optional[str]
+    logo_url: Optional[str]
     api_cfd_id: Optional[int]
     api_theodds_id: Optional[str]
 

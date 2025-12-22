@@ -41,6 +41,11 @@ class SyncWorker(QObject):
             cfd_api = CollegeFootballDataAPI(cfd_key)
             odds_api = TheOddsAPI(odds_key) if odds_key else None
 
+            # 0. Sync All Teams to get logos
+            self.progress.emit("Fetching all teams from CFD...")
+            all_teams_data = cfd_api.get_teams()
+            teams_by_id = {team['id']: team for team in all_teams_data}
+
             # 1. Get Current Season
             # Using 2025 for the current active season (Dec 2025)
             # In a real app we'd get this from settings or current date
@@ -76,6 +81,17 @@ class SyncWorker(QObject):
                     t1 = self.team_repo.upsert_from_api(g.get('homeId'), g.get('homeTeam'), g.get('homeConference'))
                     t2 = self.team_repo.upsert_from_api(g.get('awayId'), g.get('awayTeam'), g.get('awayConference'))
                     
+                    # Update Logos
+                    if t1 and t1.api_cfd_id in teams_by_id:
+                        team_data = teams_by_id[t1.api_cfd_id]
+                        if team_data.get('logos'):
+                            self.team_repo.update_logo(t1.id, team_data['logos'][0])
+
+                    if t2 and t2.api_cfd_id in teams_by_id:
+                        team_data = teams_by_id[t2.api_cfd_id]
+                        if team_data.get('logos'):
+                            self.team_repo.update_logo(t2.id, team_data['logos'][0])
+
                     # Determine Tier (Simplified logic)
                     tier = "Regular"
                     notes = g.get('notes', '').lower() if g.get('notes') else ''

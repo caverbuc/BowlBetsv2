@@ -84,6 +84,12 @@ class TeamRepository(BaseRepository):
         row = cursor.fetchone()
         return Team(**dict(row)) if row else None
 
+    def update_logo(self, team_id: int, logo_url: str):
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE Team SET logo_url = ? WHERE id = ?", (logo_url, team_id))
+        conn.commit()
+
     def find_by_name(self, name: str) -> Optional[Team]:
          cursor = self.db.get_connection().cursor()
          cursor.execute("SELECT * FROM Team WHERE canonical_name = ? OR short_name = ?", (name, name))
