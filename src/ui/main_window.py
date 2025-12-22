@@ -5,7 +5,6 @@ from PyQt6.QtCore import Qt
 from src.ui.dashboard_widget import DashboardWidget
 from src.ui.settings_widget import SettingsWidget
 from src.ui.series_wizard import SeriesWizard
-from src.ui.series_management_widget import SeriesManagementWidget
 from src.db.manager import DatabaseManager
 
 class MainWindow(QMainWindow):
@@ -15,24 +14,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("BowlBets v2.0")
         self.resize(1300, 800)
         
-        # Tabs
-        self.tabs = QTabWidget()
-        self.setCentralWidget(self.tabs)
-        
-        # 1. Dashboard Tab
-        self.dashboard_tab = DashboardWidget(self.db_manager)
-        self.tabs.addTab(self.dashboard_tab, "Dashboard")
-        
-        # 2. Series Management Tab
-        self.series_tab = SeriesManagementWidget(self.db_manager)
-        self.series_tab.seriesSelected.connect(self.on_series_selected)
-        self.series_tab.seriesCreated.connect(self._on_series_created)
-        self.series_tab.seriesDeleted.connect(lambda _: self.dashboard_tab.refresh_sidebar())
-        self.tabs.addTab(self.series_tab, "Series Management")
-        
-        # 3. Settings Tab
-        self.settings_tab = SettingsWidget(self.db_manager)
-        self.tabs.addTab(self.settings_tab, "Settings")
+        # Central Widget
+        self.dashboard_widget = DashboardWidget(self.db_manager)
+        self.setCentralWidget(self.dashboard_widget)
         
         # Status Bar
         self.setStatusBar(QStatusBar())
@@ -40,37 +24,36 @@ class MainWindow(QMainWindow):
         
         self._create_menu_bar()
 
-    def _launch_series_wizard(self):
-        wizard = SeriesWizard(self.db_manager, self)
-        wizard.seriesCreated.connect(self._on_series_created)
-        wizard.exec()
-        
-    def _on_series_created(self, series_id):
-        self.statusBar().showMessage(f"Series ID {series_id} created successfully!", 5000)
-        # Refresh series tab if needed
-        if hasattr(self.series_tab, 'load_series'):
-            self.series_tab.load_series()
-        
-        # Refresh Dashboard Sidebar
-        if hasattr(self.dashboard_tab, 'refresh_sidebar'):
-            self.dashboard_tab.refresh_sidebar()
-    
-    def on_series_selected(self, series_id):
-        """Handle series selection from Series Management tab."""
-        self.statusBar().showMessage(f"Active series: ID {series_id}", 5000)
-        # Update dashboard with active series
-        if hasattr(self.dashboard_tab, 'set_active_series'):
-            self.dashboard_tab.set_active_series(series_id)
-        
     def _create_menu_bar(self):
         menu_bar = self.menuBar()
         
         # File Menu
         file_menu = menu_bar.addMenu("&File")
+        file_menu.addAction("Settings", self._open_settings)
+        file_menu.addSeparator()
         file_menu.addAction("E&xit", self.close)
         
-        # View Menu
-        view_menu = menu_bar.addMenu("&View")
+        # Series Menu
+        series_menu = menu_bar.addMenu("&Series")
+        series_menu.addAction("New Series...", self._new_series)
+        series_menu.addSeparator()
+        series_menu.addAction("Import Series...", self._import_series)
+        series_menu.addAction("Export Series...", self._export_series)
         
         # Help Menu
         help_menu = menu_bar.addMenu("&Help")
+
+    def _open_settings(self):
+        # This could be a dialog or a tab in a settings window
+        self.settings_dialog = SettingsWidget(self.db_manager)
+        self.settings_dialog.setWindowTitle("Settings")
+        self.settings_dialog.show()
+
+    def _new_series(self):
+        self.dashboard_widget.create_new_series()
+
+    def _import_series(self):
+        self.dashboard_widget.import_series()
+
+    def _export_series(self):
+        self.dashboard_widget.export_series()

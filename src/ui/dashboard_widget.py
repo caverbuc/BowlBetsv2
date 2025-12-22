@@ -1,8 +1,8 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QScrollArea, QFrame, QGridLayout, QPushButton, QMessageBox,
-                             QInputDialog, QTreeWidget, QTreeWidgetItem, QSplitter)
+                             QInputDialog, QTreeWidget, QTreeWidgetItem, QSplitter, QMenu, QFileDialog)
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
-from PyQt6.QtGui import QFont, QCursor, QPixmap
+from PyQt6.QtGui import QFont, QCursor, QPixmap, QIcon
 from datetime import datetime, timezone, timedelta
 import dateutil.parser
 
@@ -11,8 +11,10 @@ from src.db.repositories import (BowlGameRepository, TeamRepository, OddsReposit
                                  SeasonRepository, PickRepository, BettingSeriesRepository, PersonRepository)
 from src.logic.sync_engine import SyncManager
 from src.logic.scoring import ScoringEngine
+from src.logic.import_export import SeriesTransferManager
 from src.ui.leaderboard_widget import LeaderboardWidget
 from src.ui.review_dialog import PicksReviewDialog
+from src.ui.series_wizard import SeriesWizard
 from src.api.odds import TheOddsAPI
 from src.ui.image_cache import ImageCache
 from PyQt6.QtCore import QSettings
@@ -564,7 +566,14 @@ class DashboardWidget(QWidget):
         self.series_tree = QTreeWidget()
         self.series_tree.setHeaderLabel("Season / Series")
         self.series_tree.itemClicked.connect(self._on_sidebar_item_clicked)
+        self.series_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.series_tree.customContextMenuRequested.connect(self._show_tree_context_menu)
         sidebar_layout.addWidget(self.series_tree)
+        
+        # Add Series Button
+        add_series_btn = QPushButton("+ Add Series")
+        add_series_btn.clicked.connect(self.create_new_series)
+        sidebar_layout.addWidget(add_series_btn)
         
         splitter.addWidget(sidebar_widget)
         
@@ -655,6 +664,126 @@ class DashboardWidget(QWidget):
         series_id = item.data(0, Qt.ItemDataRole.UserRole)
         if series_id:
             self.set_active_series(series_id)
+
+    def _show_tree_context_menu(self, position):
+        item = self.series_tree.itemAt(position)
+        if not item:
+            return
+
+        series_id = item.data(0, Qt.ItemDataRole.UserRole)
+        if not series_id:
+            return
+
+        menu = QMenu()
+        edit_action = menu.addAction("Edit Series...")
+        delete_action = menu.addAction("Delete Series...")
+
+        action = menu.exec(self.series_tree.mapToGlobal(position))
+
+        if action == edit_action:
+            self._edit_series(series_id)
+        elif action == delete_action:
+            self._delete_series(series_id)
+    
+    def create_new_series(self):
+        """Launch the Series Wizard to create a new series."""
+        wizard = SeriesWizard(self.db_manager, self)
+        wizard.seriesCreated.connect(self._on_series_created)
+        wizard.exec()
+
+    def _edit_series(self, series_id):
+        """Open wizard to edit selected series."""
+        series = self.series_repo.get_by_id(series_id)
+        if not series:
+            QMessageBox.warning(self, "Error", "Could not load series data.")
+            return
+        
+        # Launch wizard with existing data
+        wizard = SeriesWizard(self.db_manager, self, edit_mode=True, series_data=series)
+        wizard.seriesCreated.connect(self._on_series_edited)
+        wizard.exec()
+
+    def _delete_series(self, series_id):
+        """Delete the selected series after confirmation."""
+        series = self.series_repo.get_by_id(series_id)
+        if not series:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete '{series.name}'?\n\n"
+            "This will also delete all picks associated with this series.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Delete from database
+            conn = self.db_manager.get_connection()
+            cursor = conn.cursor()
+            
+            # Delete picks first (foreign key constraint)
+            cursor.execute("DELETE FROM Pick WHERE betting_series_id = ?", (series_id,))
+            
+            # Delete series
+            cursor.execute("DELETE FROM BettingSeries WHERE id = ?", (series_id,))
+            conn.commit()
+            
+            self.refresh_sidebar()
+            self.status_bar.setText(f"Deleted series: {series.name}")
+    
+    def _on_series_created(self, series_id):
+        """Handle new series creation."""
+        self.refresh_sidebar()
+        self.status_bar.setText(f"Created new series (ID: {series_id})")
+
+    def _on_series_edited(self, series_id):
+        """Handle series edit completion."""
+        self.refresh_sidebar()
+        self.status_bar.setText(f"Updated series (ID: {series_id})")
+
+    def import_series(self):
+        """Import a series from a JSON file."""
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "Import Series", "", "JSON Files (*.json)"
+        )
+        
+        if not filepath:
+            return
+
+        try:
+            transfer_manager = SeriesTransferManager(self.db_manager)
+            new_series_id = transfer_manager.import_series(filepath)
+            
+            QMessageBox.information(self, "Success", f"Series imported successfully (New ID: {new_series_id})")
+            
+            self.refresh_sidebar()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to import series: {str(e)}")
+
+    def export_series(self):
+        """Export the selected series to a JSON file."""
+        series_id = self.active_series_id
+        if not series_id:
+            QMessageBox.warning(self, "No Series Selected", "Please select a series to export.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Export Series", f"series_{series_id}.json", "JSON Files (*.json)"
+        )
+        
+        if not filepath:
+            return
+
+        try:
+            transfer_manager = SeriesTransferManager(self.db_manager)
+            success = transfer_manager.export_series(series_id, filepath)
+            if success:
+                QMessageBox.information(self, "Success", f"Series exported successfully to {filepath}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export series: {str(e)}")
     
     def start_sync(self):
         self.status_bar.setText("Syncing from APIs...")
