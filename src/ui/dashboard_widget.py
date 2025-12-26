@@ -1057,10 +1057,20 @@ class DashboardWidget(QWidget):
             line = odds.spread_team1
         else:
             line = -odds.spread_team1
-        
+
         series = self.series_repo.get_by_id(self.active_series_id)
-        bet_amount = series.default_bet_amount_regular
-        
+
+        # Determine bet amount based on game tier
+        tier_lower = (game.cfp_tier or "").lower()
+        name_lower = game.game_name.lower()
+
+        if "championship" in tier_lower or ("championship" in name_lower and "cfp" in name_lower):
+            bet_amount = series.default_bet_amount_championship
+        elif "cfp" in tier_lower or "playoff" in name_lower or any(x in tier_lower for x in ["semifinal", "quarterfinal", "first round"]):
+            bet_amount = series.default_bet_amount_cfp_semi
+        else:
+            bet_amount = series.default_bet_amount_regular
+
         try:
             # Mirror Logic: Identify Opponent
             opponent_id = self.person2_id if picker_id == self.person1_id else self.person1_id
@@ -1120,14 +1130,25 @@ class DashboardWidget(QWidget):
         if not self.active_series_id:
             return
         
+        game = self.game_repo.get_by_id(game_id)
         odds = self.odds_repo.get_latest_for_game(game_id)
         if not odds or odds.over_under is None:
             QMessageBox.warning(self, "No Odds", "No O/U available.")
             return
-        
+
         series = self.series_repo.get_by_id(self.active_series_id)
-        bet_amount = series.default_bet_amount_regular
-        
+
+        # Determine bet amount based on game tier
+        tier_lower = (game.cfp_tier or "").lower()
+        name_lower = game.game_name.lower()
+
+        if "championship" in tier_lower or ("championship" in name_lower and "cfp" in name_lower):
+            bet_amount = series.default_bet_amount_championship
+        elif "cfp" in tier_lower or "playoff" in name_lower or any(x in tier_lower for x in ["semifinal", "quarterfinal", "first round"]):
+            bet_amount = series.default_bet_amount_cfp_semi
+        else:
+            bet_amount = series.default_bet_amount_regular
+
         try:
             # Mirror Logic: Identify Opponent
             opponent_id = self.person2_id if picker_id == self.person1_id else self.person1_id
@@ -1295,7 +1316,11 @@ class DashboardWidget(QWidget):
             # Clear the new odds for this game
             if game_id in self.new_odds:
                 del self.new_odds[game_id]
-            
+
+            # Force database to flush any pending writes
+            conn = self.db_manager.get_connection()
+            conn.commit()
+
             self.status_bar.setText(f"Spread updated for game {game.game_name}.")
             self.status_bar.setStyleSheet("color: green; padding: 5px;")
             self.load_data(show_status=False)
