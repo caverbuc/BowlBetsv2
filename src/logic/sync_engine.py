@@ -1,11 +1,11 @@
 from PyQt6.QtCore import QObject, pyqtSignal, QSettings, QThread
 from typing import Dict, List
 import logging
+import json
 
 from src.db.manager import DatabaseManager
 from src.db.repositories import TeamRepository, BowlGameRepository, OddsRepository, SeasonRepository
 from src.api.cfd import CollegeFootballDataAPI
-from src.api.odds import TheOddsAPI
 
 class SyncWorker(QObject):
     """
@@ -32,14 +32,12 @@ class SyncWorker(QObject):
         try:
             self.progress.emit("Initializing API Clients...")
             cfd_key = self.settings.value("api_keys/cfd", "")
-            odds_key = self.settings.value("api_keys/theodds", "")
 
             if not cfd_key:
                 self.finished.emit(False, "Missing CollegeFootballData API Key.")
                 return
 
             cfd_api = CollegeFootballDataAPI(cfd_key)
-            odds_api = TheOddsAPI(odds_key) if odds_key else None
 
             # 0. Sync All Teams to get logos
             self.progress.emit("Fetching all teams from CFD...")
@@ -54,27 +52,44 @@ class SyncWorker(QObject):
             if not season:
                 season = self.season_repo.create(current_year, f"{current_year}-{current_year+1} Bowl Season")
 
-            # 2. Sync Games from CFD
-            self.progress.emit("Fetching Bowl Games from CFD...")
+            # 2. Fetch all data in bulk
+            self.progress.emit("Fetching all games, betting lines, venues, and media from CFD API...")
             games = cfd_api.get_postseason_games(current_year)
+            games.extend(cfd_api.get_postseason_games(current_year + 1))
+            logging.info(f"Raw games response (first 5): {json.dumps(games[:5], indent=2)}")
             
+            lines = cfd_api.get_betting_lines(year=current_year, season_type="postseason")
+            lines.extend(cfd_api.get_betting_lines(year=current_year + 1, season_type="postseason"))
+            logging.info(f"Raw betting lines response (first 5): {json.dumps(lines[:5], indent=2)}")
+
+            venues = cfd_api.get_venues()
+            game_media = cfd_api.get_game_media(year=current_year, season_type="postseason")
+            game_media.extend(cfd_api.get_game_media(year=current_year + 1, season_type="postseason"))
+            logging.info(f"Raw game media response (first 5): {json.dumps(game_media[:5], indent=2)}")
+
+            # Create lookups for efficient access
+            lines_by_game_id = {game_line['id']: game_line for game_line in lines}
+            venues_by_id = {venue['id']: venue for venue in venues}
+            media_by_game_id = {media_item['id']: media_item for media_item in game_media}
+
+            # 3. Process and Upsert Data
             if not games:
                 self.progress.emit("No games found or API error.")
             else:
                 self.progress.emit(f"Processing {len(games)} games...")
+                new_odds_list = []
+                mapped_count = 0
+                
                 for g in games:
-                    # CFD Game Structure assumption:
-                    # { 'id': 123, 'season': 2024, 'home_team': '...', 'home_id': 1, 'away_team': '...', 'away_id': 2, 'start_date': '...', 'venue': '...', ... }
-                    
-                    
+                    logging.info(f"Processing game: ID={g.get('id')}, Name={g.get('game_name')}, Home={g.get('homeTeam')}, Away={g.get('awayTeam')}")
                     # Validate Data
                     if not g.get('homeTeam') or not g.get('awayTeam'):
-                        print(f"Skipping game {g.get('id')} due to missing team info.")
+                        logging.warning(f"Skipping game {g.get('id')} due to missing team info.")
                         continue
                         
                     # Filter for FBS only
                     if g.get('homeClassification') != 'fbs' or g.get('awayClassification') != 'fbs':
-                        print(f"Skipping non-FBS game {g.get('id')} ({g.get('homeTeam')} vs {g.get('awayTeam')})")
+                        logging.info(f"Skipping non-FBS game {g.get('id')} ({g.get('homeTeam')} vs {g.get('awayTeam')})")
                         continue
 
                     # Upsert Teams
@@ -108,9 +123,18 @@ class SyncWorker(QObject):
                     elif 'playoff' in notes or 'playoff' in name_lower:
                         tier = "CFP"
 
+                    # Get venue name
+                    venue_name = g.get('venue', 'Unknown')
+                    if g.get('venueId') and g['venueId'] in venues_by_id:
+                        venue_name = venues_by_id[g['venueId']].get('name', venue_name)
                     
+                    # Get media outlet
+                    media_outlet = None
+                    if g.get('id') in media_by_game_id:
+                        media_outlet = media_by_game_id[g['id']].get('outlet', None)
+
                     # Upsert Game
-                    self.game_repo.upsert(
+                    db_game = self.game_repo.upsert(
                         season_id=season.id,
                         api_cfd_id=g['id'],
                         game_name=notes if notes else f"{t1.short_name} vs {t2.short_name}",
@@ -121,108 +145,50 @@ class SyncWorker(QObject):
                         cfp_tier=tier,
                         status="Completed" if g.get('completed') else "Scheduled",
                         fs1=g.get('homePoints'),
-                        fs2=g.get('awayPoints')
+                        fs2=g.get('awayPoints'),
+                        venue_name=venue_name,
+                        media_outlet=media_outlet
                     )
+                    logging.info(f"Upserted game {db_game.game_name} (DB ID: {db_game.id}, CFD ID: {db_game.api_cfd_id})")
 
-            # 3. Sync Odds
-            new_odds_list = []
-            if odds_api:
-                self.progress.emit("Fetching Odds from TheOddsAPI...")
-                odds_events = odds_api.get_odds()
-                
-                mapped_count = 0
-                for event in odds_events:
-                    # Match event to game
-                    # Event has 'home_team', 'away_team'
-                    home_name = event.get('home_team')
-                    away_name = event.get('away_team')
-                    
-                    # Find game in DB
-                    # Naive match: Check matching team names in current season games
-                    db_games = self.game_repo.get_by_season(season.id)
-                    
-                    matched_game = None
-                    for dbg in db_games:
-                        # Need to load team names for the game
-                        t1 = self.team_repo.get_by_id(dbg.team1_id)
-                        t2 = self.team_repo.get_by_id(dbg.team2_id)
+                    # 4. Sync Odds using CFD API
+                    if db_game.api_cfd_id in lines_by_game_id:
+                        line_data = lines_by_game_id[db_game.api_cfd_id]
+                        logging.info(f"Found line data for game {db_game.api_cfd_id}: {json.dumps(line_data, indent=2)}")
                         
-                        # Check loose match (containment)
-                        # e.g. "Army" in "Army Black Knights" or vice versa
-                        # Normalize a bit (lower case)
+                        # Find the first available line
+                        line_record = line_data.get('lines', [])[0] if line_data.get('lines') else None
                         
-                        def match_names(n1, n2):
-                            if not n1 or not n2: return False
-                            n1 = n1.lower()
-                            n2 = n2.lower()
-                            return n1 in n2 or n2 in n1
+                        if line_record:
+                            spread_team1 = None
+                            over_under = None
 
-                        # We need to match BOTH teams to confirm game
-                        # Matches could be (T1=Home, T2=Away) OR (T1=Away, T2=Home)
-                        
-                        match_home = match_names(t1.canonical_name, home_name)
-                        match_away = match_names(t2.canonical_name, away_name)
-                        
-                        if match_home and match_away:
-                            matched_game = dbg
-                            break
+                            if line_record.get('spread') is not None:
+                                # Spread is for the home team, and t1 is always the home team
+                                spread_team1 = line_record['spread']
                             
-                        # Try swapped
-                        match_home_swapped = match_names(t2.canonical_name, home_name)
-                        match_away_swapped = match_names(t1.canonical_name, away_name)
-                        
-                        if match_home_swapped and match_away_swapped:
-                            matched_game = dbg
-                            break
-                    
-                    if matched_game:
-                        # Parse Odds
-                        # Structure: event['bookmakers'][0]['markets'][0]['outcomes']...
-                        # Using first available bookmaker (typically DraftKings, FanDuel, etc.)
-                        bookmakers = event.get('bookmakers', [])
-                        if bookmakers:
-                            bookmaker_name = bookmakers[0].get('title', 'Unknown')
-                            markets = bookmakers[0].get('markets', [])
-                            spreads = next((m for m in markets if m['key'] == 'spreads'), None)
-                            totals = next((m for m in markets if m['key'] == 'totals'), None)
+                            logging.info(f"Extracted spread_team1: {spread_team1}")
+
+                            if line_record.get('overUnder') is not None:
+                                over_under = line_record['overUnder']
                             
-                            sp_val = None
-                            ou_val = None
-                            
-                            if spreads:
-                                # outcomes: [{'name': 'TeamA', 'price': 1.9, 'point': -3.5}, ...]
-                                # We need spread relative to Team1
-                                # Find outcome for Team1 using fuzzy matching
-                                t1_obj = self.team_repo.get_by_id(matched_game.team1_id)
-                                
-                                def match_names(n1, n2):
-                                    if not n1 or not n2: return False
-                                    n1 = n1.lower()
-                                    n2 = n2.lower()
-                                    return n1 in n2 or n2 in n1
-                                
-                                for out in spreads['outcomes']:
-                                    # Fuzzy match outcome name to team name
-                                    if match_names(t1_obj.canonical_name, out['name']):
-                                        sp_val = out['point']
-                                        break
-                            
-                            if totals:
-                                # outcomes: [{'name': 'Over', 'point': 45.5}, ...]
-                                if totals['outcomes']:
-                                    ou_val = totals['outcomes'][0]['point']
-                            
-                            if sp_val is not None or ou_val is not None:
-                                # Instead of updating the DB, add to the list
+                            logging.info(f"Extracted over_under: {over_under}")
+
+                            if spread_team1 is not None or over_under is not None:
                                 from src.db.models import Odds
-                                new_odds_list.append(Odds(id=None, bowl_game_id=matched_game.id, spread_team1=sp_val, over_under=ou_val))
+                                new_odds_list.append(Odds(id=None, bowl_game_id=db_game.id, spread_team1=spread_team1, over_under=over_under))
                                 mapped_count += 1
-
-                self.progress.emit(f"Odds synced from {bookmaker_name if bookmakers else 'API'}. Matched {mapped_count} games.")
-            else:
-                self.progress.emit("No Odds API Key provided. Skipping odds.")
+                                logging.info(f"Added new odds for game {db_game.game_name}: Spread={spread_team1}, O/U={over_under}")
+                        else:
+                            logging.info(f"No valid line record found for game {db_game.game_name} (CFD ID: {db_game.api_cfd_id}) in line_data.")
+                    else:
+                        logging.info(f"No line data found in lines_by_game_id for game {db_game.game_name} (CFD ID: {db_game.api_cfd_id}).")
+                
+                self.progress.emit(f"Processed {len(games)} games, found {mapped_count} odds.")
 
             self.finished.emit(True, "Sync Completed Successfully.", new_odds_list)
+
+
 
         except Exception as e:
             import traceback

@@ -39,6 +39,8 @@ class BowlGame:
     game_status: str
     final_score_team1: Optional[int]
     final_score_team2: Optional[int]
+    venue_name: Optional[str] = None
+    media_outlet: Optional[str] = None
     last_api_update: Optional[datetime] = None
 
 @dataclass

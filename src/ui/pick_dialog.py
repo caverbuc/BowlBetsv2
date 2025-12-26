@@ -111,6 +111,7 @@ class PickDialog(QDialog):
         self.ou_input.setRange(0, 200)
         self.ou_input.setSingleStep(0.5)
         self.ou_input.setDecimals(1)
+        self.ou_input.setEnabled(True)
         
         # Pre-populate with API O/U if available
         if self.odds and self.odds.over_under is not None:

@@ -170,7 +170,8 @@ class BettingSeriesRepository(BaseRepository):
 class BowlGameRepository(BaseRepository):
     def upsert(self, season_id: int, api_cfd_id: int, game_name: str, game_date: str, 
                location: str, team1_id: int, team2_id: int, cfp_tier: str, 
-               status: str, fs1: Optional[int], fs2: Optional[int]) -> BowlGame:
+               status: str, fs1: Optional[int], fs2: Optional[int],
+               venue_name: Optional[str] = None, media_outlet: Optional[str] = None) -> BowlGame:
         
         conn = self.db.get_connection()
         cursor = conn.cursor()
@@ -185,18 +186,20 @@ class BowlGameRepository(BaseRepository):
                 UPDATE BowlGame SET 
                 game_name=?, game_date=?, location=?, team1_id=?, team2_id=?, 
                 cfp_tier=?, game_status=?, final_score_team1=?, final_score_team2=?, 
-                last_api_update=CURRENT_TIMESTAMP
+                venue_name=?, media_outlet=?, last_api_update=CURRENT_TIMESTAMP
                 WHERE api_cfd_id=?
-            """, (game_name, game_date, location, team1_id, team2_id, cfp_tier, status, fs1, fs2, api_cfd_id))
+            """, (game_name, game_date, location, team1_id, team2_id, cfp_tier, status, fs1, fs2, 
+                  venue_name, media_outlet, api_cfd_id))
             game_id = row['id']
         else:
             # Insert
             cursor.execute("""
                 INSERT INTO BowlGame (season_id, api_cfd_id, game_name, game_date, location, 
                                     team1_id, team2_id, cfp_tier, game_status, 
-                                    final_score_team1, final_score_team2)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (season_id, api_cfd_id, game_name, game_date, location, team1_id, team2_id, cfp_tier, status, fs1, fs2))
+                                    final_score_team1, final_score_team2, venue_name, media_outlet)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (season_id, api_cfd_id, game_name, game_date, location, 
+                  team1_id, team2_id, cfp_tier, status, fs1, fs2, venue_name, media_outlet))
             game_id = cursor.lastrowid
             
         conn.commit()

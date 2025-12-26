@@ -1,10 +1,11 @@
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
-                             QLabel, QTabWidget, QStatusBar, QMenuBar, QPushButton, 
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
+                             QLabel, QTabWidget, QStatusBar, QMenuBar, QPushButton,
                              QHBoxLayout)
 from PyQt6.QtCore import Qt
 from src.ui.dashboard_widget import DashboardWidget
 from src.ui.settings_widget import SettingsWidget
 from src.ui.series_wizard import SeriesWizard
+from src.ui.about_dialog import AboutDialog
 from src.db.manager import DatabaseManager
 
 class MainWindow(QMainWindow):
@@ -42,6 +43,7 @@ class MainWindow(QMainWindow):
         
         # Help Menu
         help_menu = menu_bar.addMenu("&Help")
+        help_menu.addAction("&About BowlBets", self._show_about)
 
     def _open_settings(self):
         # This could be a dialog or a tab in a settings window
@@ -57,3 +59,8 @@ class MainWindow(QMainWindow):
 
     def _export_series(self):
         self.dashboard_widget.export_series()
+
+    def _show_about(self):
+        """Show the About dialog with user guide."""
+        about_dialog = AboutDialog(self)
+        about_dialog.exec()

@@ -15,7 +15,6 @@ from src.logic.import_export import SeriesTransferManager
 from src.ui.leaderboard_widget import LeaderboardWidget
 from src.ui.review_dialog import PicksReviewDialog
 from src.ui.series_wizard import SeriesWizard
-from src.api.odds import TheOddsAPI
 from src.ui.image_cache import ImageCache
 from PyQt6.QtCore import QSettings
 
@@ -42,6 +41,7 @@ class GameCard(QFrame):
     teamClicked = pyqtSignal(int, int, int)  # (game_id, team_id, picker_id)
     pickerToggled = pyqtSignal(int)  # game_id
     spreadEditRequested = pyqtSignal(int)  # game_id
+    ouEditRequested = pyqtSignal(int)  # game_id
     ouClicked = pyqtSignal(int, str, int)  # (game_id, "Over"/"Under", picker_id)
     betAmountChanged = pyqtSignal(int, float) # game_id, new_amount
     newSpreadAccepted = pyqtSignal(int, float) # game_id, new_spread
@@ -91,19 +91,22 @@ class GameCard(QFrame):
         
         header_layout.addStretch()
         
-        # Date Formatting
+        # Date Formatting - convert to user's local time zone
         date_str = self.game_data.game_date
         display_date = date_str
-        
+
         try:
             dt_utc = dateutil.parser.isoparse(date_str)
             if dt_utc.tzinfo is None:
                 dt_utc = dt_utc.replace(tzinfo=timezone.utc)
-            
-            central_offset = timezone(timedelta(hours=-6))
-            dt_central = dt_utc.astimezone(central_offset)
-            display_date = dt_central.strftime("%A %B %d, %Y %I:%M%p")
-            
+
+            # Convert to local time zone automatically
+            dt_local = dt_utc.astimezone()
+
+            # Format with time zone abbreviation
+            display_date = dt_local.strftime("%A %B %d, %Y %I:%M%p %Z")
+
+            # Remove leading zero from hour
             if display_date.split()[3].startswith('0'):
                 parts = display_date.split()
                 parts[3] = parts[3][1:]
@@ -113,11 +116,30 @@ class GameCard(QFrame):
         
         date_lbl = QLabel(display_date)
         date_lbl.setStyleSheet("color: gray; font-size: 10px;")
-        
+
+        # Venue and Media info (stacked under date on right side)
+        venue_media_parts = []
+        if self.game_data.venue_name:
+            venue_media_parts.append(f"📍 {self.game_data.venue_name}")
+        if self.game_data.media_outlet:
+            venue_media_parts.append(f"📺 {self.game_data.media_outlet}")
+
+        # Create vertical layout for date and venue/media
+        right_info_layout = QVBoxLayout()
+        right_info_layout.setSpacing(2)
+        right_info_layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        right_info_layout.addWidget(date_lbl)
+
+        if venue_media_parts:
+            venue_media_lbl = QLabel(" • ".join(venue_media_parts))
+            venue_media_lbl.setStyleSheet("color: #666; font-size: 9px; font-style: italic;")
+            venue_media_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+            right_info_layout.addWidget(venue_media_lbl)
+
         header_layout.addStretch()
-        header_layout.addWidget(date_lbl)
+        header_layout.addLayout(right_info_layout)
         layout.addLayout(header_layout)
-        
+
         # Picker and Status on same line
         picker_status_layout = QHBoxLayout()
         
@@ -352,19 +374,21 @@ class GameCard(QFrame):
         teams_grid.addWidget(t2_score, 1, 2)
         
         # New odds section (moved into the grid)
-        if self.new_odds and self.new_odds.spread_team1 is not None and self.odds and self.odds.spread_team1 is not None:
+        if self.new_odds and self.new_odds.spread_team1 is not None:
             new_spread_val = self.new_odds.spread_team1
-            
-            new_spread_str = f"New Spread: {new_spread_val:+}"
+
+            # Show new odds with comparison to existing odds if available
             if self.odds and self.odds.spread_team1 is not None:
-                new_spread_str += f" (vs {self.odds.spread_team1:+})"
-            
+                new_spread_str = f"New Spread: {new_spread_val:+} (vs {self.odds.spread_team1:+})"
+            else:
+                new_spread_str = f"New Spread: {new_spread_val:+}"
+
             new_spread_label = QLabel(new_spread_str)
             new_spread_label.setStyleSheet("font-size: 11px; color: #888; font-style: italic;")
-            
-            # Warning emoji logic corrected: shows when difference is GREATER than 3
+
+            # Warning emoji logic: shows when difference is GREATER than 3 (only if existing odds present)
             warning_label = QLabel("")
-            if abs(new_spread_val - self.odds.spread_team1) > 3: # Corrected condition
+            if self.odds and self.odds.spread_team1 is not None and abs(new_spread_val - self.odds.spread_team1) > 3:
                 warning_label.setText("⚠️")
                 warning_label.setToolTip("Spread changed by more than 3 points")
                 warning_label.setStyleSheet("font-size: 14px;")
@@ -399,6 +423,28 @@ class GameCard(QFrame):
             ou_lbl = QLabel(f"O/U: {self.odds.over_under}")
             ou_lbl.setStyleSheet("font-size: 11px; color: #555;")
             ou_layout.addWidget(ou_lbl)
+
+            # Add Edit O/U Button
+            ou_edit_btn = QPushButton("✎")
+            ou_edit_btn.setFixedSize(16, 16)
+            ou_edit_btn.setToolTip("Edit Over/Under")
+            ou_edit_btn.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    color: #888;
+                    font-size: 12px;
+                    font-weight: bold;
+                    background: transparent;
+                }
+                QPushButton:hover {
+                    color: blue;
+                    background-color: #eee;
+                    border-radius: 3px;
+                }
+            """)
+            ou_edit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            ou_edit_btn.clicked.connect(lambda: self.ouEditRequested.emit(self.game_data.id))
+            ou_layout.addWidget(ou_edit_btn)
             
             # Clickable O/U options
             over_btn = ClickableLabel("Over")
@@ -911,6 +957,7 @@ class DashboardWidget(QWidget):
             card.teamClicked.connect(self.on_team_clicked)
             card.pickerToggled.connect(self.on_picker_toggled)
             card.spreadEditRequested.connect(self.on_spread_edit_requested)
+            card.ouEditRequested.connect(self.on_ou_edit_requested)
             card.ouClicked.connect(self.on_ou_clicked)
             card.betAmountChanged.connect(self.on_bet_amount_changed)
             card.newSpreadAccepted.connect(self.on_new_spread_accepted)
@@ -1166,34 +1213,63 @@ class DashboardWidget(QWidget):
     def on_spread_edit_requested(self, game_id):
         current_odds = self.odds_repo.get_latest_for_game(game_id)
         current_spread = current_odds.spread_team1 if current_odds else 0.0
-        
+
         spread, ok = QInputDialog.getDouble(
             self, "Edit Spread",
             "Enter spread for Team 1 (negative means Team 1 is favored):",
             current_spread, -99.5, 99.5, 1
         )
-        
+
         if ok:
             conn = self.db_manager.get_connection()
             cursor = conn.cursor()
-            
+
             if current_odds:
                 cursor.execute("UPDATE Odds SET spread_team1 = ? WHERE id = ?", (spread, current_odds.id))
             else:
                 cursor.execute("INSERT INTO Odds (bowl_game_id, spread_team1) VALUES (?, ?)", (game_id, spread))
-            
+
             conn.commit()
             self.status_bar.setText(f"Spread updated to {spread:+}")
             self.status_bar.setStyleSheet("color: green; padding: 5px;")
             self.load_data(show_status=False)
-            
+
+    def on_ou_edit_requested(self, game_id):
+        current_odds = self.odds_repo.get_latest_for_game(game_id)
+        current_ou = current_odds.over_under if current_odds else 45.0
+
+        over_under, ok = QInputDialog.getDouble(
+            self, "Edit Over/Under",
+            "Enter total points line:",
+            current_ou, 0.0, 200.0, 1
+        )
+
+        if ok:
+            conn = self.db_manager.get_connection()
+            cursor = conn.cursor()
+
+            if current_odds:
+                cursor.execute("UPDATE Odds SET over_under = ? WHERE id = ?", (over_under, current_odds.id))
+            else:
+                cursor.execute("INSERT INTO Odds (bowl_game_id, over_under) VALUES (?, ?)", (game_id, over_under))
+
+            conn.commit()
+            self.status_bar.setText(f"Over/Under updated to {over_under}")
+            self.status_bar.setStyleSheet("color: green; padding: 5px;")
+            self.load_data(show_status=False)
+
     def on_new_spread_accepted(self, game_id, new_spread):
         if not self.active_series_id:
             return
-        
+
         try:
-            # Update the odds in the database
-            self.odds_repo.update_odds(game_id, new_spread, None)
+            # Get the over/under from new_odds to preserve it when accepting
+            new_over_under = None
+            if game_id in self.new_odds and self.new_odds[game_id]:
+                new_over_under = self.new_odds[game_id].over_under
+
+            # Update the odds in the database with both spread and over/under
+            self.odds_repo.update_odds(game_id, new_spread, new_over_under)
 
             # For the team that is picked, we need to adjust the spread.
             # The new_spread is for team1. So if the pick is for team2, the spread should be inverted.

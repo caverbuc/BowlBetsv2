@@ -72,6 +72,8 @@ class DatabaseManager:
                 game_status TEXT NOT NULL DEFAULT 'Scheduled',
                 final_score_team1 INTEGER,
                 final_score_team2 INTEGER,
+                venue_name TEXT,
+                media_outlet TEXT,
                 last_api_update DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (season_id) REFERENCES Season(id),
                 FOREIGN KEY (team1_id) REFERENCES Team(id),
@@ -164,3 +166,15 @@ class DatabaseManager:
         if 'logo_url' not in columns:
             print("Migrating: Adding logo_url to Team table")
             cursor.execute("ALTER TABLE Team ADD COLUMN logo_url TEXT")
+            
+        # Check BowlGame table columns for venue_name and media_outlet
+        cursor.execute("PRAGMA table_info(BowlGame)")
+        columns = [info[1] for info in cursor.fetchall()]
+        
+        if 'venue_name' not in columns:
+            print("Migrating: Adding venue_name to BowlGame table")
+            cursor.execute("ALTER TABLE BowlGame ADD COLUMN venue_name TEXT")
+            
+        if 'media_outlet' not in columns:
+            print("Migrating: Adding media_outlet to BowlGame table")
+            cursor.execute("ALTER TABLE BowlGame ADD COLUMN media_outlet TEXT")
