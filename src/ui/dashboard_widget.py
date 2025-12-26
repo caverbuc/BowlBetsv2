@@ -1263,10 +1263,16 @@ class DashboardWidget(QWidget):
             return
 
         try:
-            # Get the over/under from new_odds to preserve it when accepting
+            # Get the over/under - prefer new_odds, but preserve existing if not available
             new_over_under = None
             if game_id in self.new_odds and self.new_odds[game_id]:
                 new_over_under = self.new_odds[game_id].over_under
+
+            # If new_over_under is None, preserve the existing over_under from current odds
+            if new_over_under is None:
+                current_odds = self.odds_repo.get_latest_for_game(game_id)
+                if current_odds:
+                    new_over_under = current_odds.over_under
 
             # Update the odds in the database with both spread and over/under
             self.odds_repo.update_odds(game_id, new_spread, new_over_under)
