@@ -73,12 +73,13 @@ class SyncWorker(QObject):
             media_by_game_id = {media_item['id']: media_item for media_item in game_media}
 
             # 3. Process and Upsert Data
+            new_odds_list = []
+            mapped_count = 0
+
             if not games:
                 self.progress.emit("No games found or API error.")
             else:
                 self.progress.emit(f"Processing {len(games)} games...")
-                new_odds_list = []
-                mapped_count = 0
                 
                 for g in games:
                     logging.info(f"Processing game: ID={g.get('id')}, Name={g.get('game_name')}, Home={g.get('homeTeam')}, Away={g.get('awayTeam')}")
