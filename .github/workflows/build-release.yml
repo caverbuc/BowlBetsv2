@@ -13,19 +13,9 @@ jobs:
         os: [macos-latest, windows-latest]
         include:
           - os: macos-latest
-            output_name: BowlBets.app
             artifact_name: BowlBets-macOS.zip
-            build_command: |
-              pyinstaller BowlBets.spec --clean
-              cd dist
-              zip -r BowlBets-macOS.zip BowlBets.app
           - os: windows-latest
-            output_name: BowlBets.exe
             artifact_name: BowlBets-Windows.zip
-            build_command: |
-              pyinstaller BowlBets-windows.spec --clean
-              cd dist
-              Compress-Archive -Path BowlBets -DestinationPath BowlBets-Windows.zip
 
     runs-on: ${{ matrix.os }}
 
@@ -44,9 +34,26 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
-    - name: Build application
-      shell: bash
-      run: ${{ matrix.build_command }}
+    - name: Build with PyInstaller (macOS)
+      if: runner.os == 'macOS'
+      run: pyinstaller BowlBets.spec --clean
+
+    - name: Build with PyInstaller (Windows)
+      if: runner.os == 'Windows'
+      run: pyinstaller BowlBets-windows.spec --clean
+
+    - name: Create zip (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        cd dist
+        zip -r BowlBets-macOS.zip BowlBets.app
+
+    - name: Create zip (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        cd dist
+        Compress-Archive -Path BowlBets -DestinationPath BowlBets-Windows.zip
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
