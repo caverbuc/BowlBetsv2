@@ -1,8 +1,5 @@
-PyQt6>=6.6.0
-requests>=2.31.0
-python-dotenv>=1.0.0
-pytest>=7.4.0
-pytest-qt>=4.2.0
-black>=23.12.0
-flake8>=7.0.0
-python-dateutil>=2.8.2
+PyQt6==6.10.1
+PyQt6-Qt6==6.10.1
+PyQt6_sip==13.10.3
+python-dateutil==2.9.0.post0
+requests==2.32.5

@@ -1,5 +1,50 @@
 # BowlBets - Download and Installation Guide
 
+## For Windows Users
+
+### Step 1: Download
+1. Download the `BowlBets-Windows.zip` file from the release
+2. Find the file in your Downloads folder
+3. **Right-click** on the .zip file → **Extract All** → Click **Extract**
+
+### Step 2: Install
+1. Open the extracted `BowlBets` folder
+2. You'll see `BowlBets.exe` inside
+3. **Optional**: Create a shortcut on your desktop:
+   - Right-click on `BowlBets.exe`
+   - Click **"Create shortcut"**
+   - Drag the shortcut to your desktop
+
+### Step 3: First Time Opening
+**IMPORTANT:** The first time you open the app, Windows Defender may show a security warning.
+
+Here's how to open it the first time:
+1. Double-click `BowlBets.exe` (or the shortcut)
+2. If you see **"Windows protected your PC"**:
+   - Click **"More info"**
+   - Click **"Run anyway"**
+3. The app will start!
+
+**After the first time**, Windows will remember it's safe and won't show the warning.
+
+### Step 4: Get Your API Key
+Before you can use BowlBets, you need a free API key:
+
+1. Visit: https://collegefootballdata.com
+2. Click **"Get API Key"** or **"Sign Up"**
+3. Create a free account
+4. Copy your API key (it will look like a long string of letters and numbers)
+5. In BowlBets, go to **File → Settings**
+6. Paste your API key and click outside the box to save
+
+### Step 5: Start Using BowlBets!
+1. Go to **Series → New Series** to create your betting series
+2. Follow the wizard to set up the season and participants
+3. Click **"Sync from APIs"** to load all the bowl games
+4. Start making picks!
+
+---
+
 ## For Mac Users
 
 ### Step 1: Download
