@@ -56,7 +56,7 @@ exe = EXE(
 app = BUNDLE(
     exe,
     name='LineLock.app',
-    icon='icon.icns',
+    icon=None,  # icon.icns is not in correct format - needs proper conversion from .ico
     bundle_identifier='com.linelock.app',
     info_plist={
         'NSHighResolutionCapable': 'True',
