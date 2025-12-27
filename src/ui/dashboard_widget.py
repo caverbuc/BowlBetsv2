@@ -679,7 +679,9 @@ class DashboardWidget(QWidget):
         self.refresh_sidebar()
     
     def on_accept_all_new_spreads(self):
-        for game_id, new_odds in self.new_odds.items():
+        # Create a list of tuples to avoid modifying dict during iteration
+        new_odds_list = list(self.new_odds.items())
+        for game_id, new_odds in new_odds_list:
             if new_odds and new_odds.spread_team1 is not None:
                 self.on_new_spread_accepted(game_id, new_odds.spread_team1)
     
