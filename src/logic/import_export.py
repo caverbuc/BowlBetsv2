@@ -5,8 +5,8 @@ from typing import Dict, Any, Optional
 
 from src.db.manager import DatabaseManager
 from src.db.repositories import (
-    BettingSeriesRepository, PersonRepository, PickRepository, 
-    BowlGameRepository, SeasonRepository, TeamRepository
+    BettingSeriesRepository, PersonRepository, PickRepository,
+    BowlGameRepository, SeasonRepository, TeamRepository, OddsRepository
 )
 from src.db.models import BettingSeries, Person, Pick, BowlGame, Season
 
@@ -23,6 +23,7 @@ class SeriesTransferManager:
         self.game_repo = BowlGameRepository(db_manager)
         self.season_repo = SeasonRepository(db_manager)
         self.team_repo = TeamRepository(db_manager)
+        self.odds_repo = OddsRepository(db_manager)
 
     def export_series(self, series_id: int, filepath: str) -> bool:
         """
@@ -149,7 +150,9 @@ class SeriesTransferManager:
             champ_amt=s_data["default_bet_amount_championship"]
         )
 
-        # 4. Import Picks
+        # 4. Import Picks and track games with odds
+        games_with_odds = {}  # game_id -> {spread_team1, over_under}
+
         for p_data in data["picks"]:
             # Find Game
             game = None
@@ -161,7 +164,7 @@ class SeriesTransferManager:
                      if g.api_cfd_id == p_data["game_api_cfd_id"]:
                          game = g
                          break
-            
+
             # Fallback by name
             if not game:
                 # Try fuzzy name match? or exact
@@ -170,7 +173,7 @@ class SeriesTransferManager:
                     if g.game_name == p_data["game_name"]:
                          game = g
                          break
-            
+
             if not game:
                 print(f"Warning: Could not link game {p_data.get('game_name')} - skipping pick.")
                 continue
@@ -182,7 +185,7 @@ class SeriesTransferManager:
                  team = self.team_repo.find_by_name(p_data["picked_team_name"])
                  if team:
                      picked_team_id = team.id
-            
+
             # Create Pick
             new_person_id = person_map.get(p_data["person_original_id"])
             if not new_person_id:
@@ -199,5 +202,37 @@ class SeriesTransferManager:
                 picked_value=p_data["picked_value"],
                 is_originator=p_data.get("is_originator", False)
             )
+
+            # Track odds information from picks
+            if game.id not in games_with_odds:
+                games_with_odds[game.id] = {"spread_team1": None, "over_under": None}
+
+            # Extract spread for team1 from spread picks
+            if p_data["pick_type"] == "Spread" and p_data.get("line_at_pick") is not None:
+                # The line_at_pick is relative to the picked team
+                # If picked team is team1, use line_at_pick directly
+                # If picked team is team2, negate it
+                if picked_team_id == game.team1_id:
+                    games_with_odds[game.id]["spread_team1"] = p_data["line_at_pick"]
+                elif picked_team_id == game.team2_id:
+                    games_with_odds[game.id]["spread_team1"] = -p_data["line_at_pick"]
+
+            # Extract over/under from O/U picks
+            if p_data["pick_type"] == "Over/Under" and p_data.get("line_at_pick") is not None:
+                games_with_odds[game.id]["over_under"] = p_data["line_at_pick"]
+
+        # 5. Create Odds records for games with imported picks
+        for game_id, odds_data in games_with_odds.items():
+            # Check if odds already exist for this game
+            existing_odds = self.odds_repo.get_latest_for_game(game_id)
+
+            if not existing_odds:
+                # Create new odds record with the spread and/or over_under from picks
+                if odds_data["spread_team1"] is not None or odds_data["over_under"] is not None:
+                    self.odds_repo.update_odds(
+                        game_id,
+                        odds_data["spread_team1"],
+                        odds_data["over_under"]
+                    )
 
         return new_series.id
