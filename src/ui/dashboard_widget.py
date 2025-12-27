@@ -1300,18 +1300,16 @@ class DashboardWidget(QWidget):
 
             # For the team that is picked, we need to adjust the spread.
             # The new_spread is for team1. So if the pick is for team2, the spread should be inverted.
-            
+
             picks = self.pick_repo.get_picks_for_game(self.active_series_id, game_id)
-            if not picks:
-                return
-                
-            game = self.game_repo.get_by_id(game_id)
-            
-            for pick in picks:
-                if pick.picked_team_id == game.team1_id:
-                    self.pick_repo.update_pick_line(pick.id, new_spread)
-                else:
-                    self.pick_repo.update_pick_line(pick.id, -new_spread)
+            if picks:
+                game = self.game_repo.get_by_id(game_id)
+
+                for pick in picks:
+                    if pick.picked_team_id == game.team1_id:
+                        self.pick_repo.update_pick_line(pick.id, new_spread)
+                    else:
+                        self.pick_repo.update_pick_line(pick.id, -new_spread)
 
             # Clear the new odds for this game
             if game_id in self.new_odds:
@@ -1319,6 +1317,9 @@ class DashboardWidget(QWidget):
 
             # Force database to flush and reset connection for fresh reads
             self.db_manager.close()  # Close old connection
+
+            # Get game name for status message
+            game = self.game_repo.get_by_id(game_id)
 
             # Verify the new odds were saved correctly
             fresh_odds = self.odds_repo.get_latest_for_game(game_id)
