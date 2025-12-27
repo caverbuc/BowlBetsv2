@@ -12,7 +12,7 @@ class MainWindow(QMainWindow):
     def __init__(self, db_manager: DatabaseManager):
         super().__init__()
         self.db_manager = db_manager
-        self.setWindowTitle("BowlBets v2.0")
+        self.setWindowTitle("LineLock v2.0")
         self.resize(1300, 800)
         
         # Central Widget
@@ -43,7 +43,7 @@ class MainWindow(QMainWindow):
         
         # Help Menu
         help_menu = menu_bar.addMenu("&Help")
-        help_menu.addAction("&About BowlBets", self._show_about)
+        help_menu.addAction("&About LineLock", self._show_about)
 
     def _open_settings(self):
         # This could be a dialog or a tab in a settings window

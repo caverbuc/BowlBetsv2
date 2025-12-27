@@ -1317,12 +1317,19 @@ class DashboardWidget(QWidget):
             if game_id in self.new_odds:
                 del self.new_odds[game_id]
 
-            # Force database to flush any pending writes
-            conn = self.db_manager.get_connection()
-            conn.commit()
+            # Force database to flush and reset connection for fresh reads
+            self.db_manager.close()  # Close old connection
 
-            self.status_bar.setText(f"Spread updated for game {game.game_name}.")
-            self.status_bar.setStyleSheet("color: green; padding: 5px;")
+            # Verify the new odds were saved correctly
+            fresh_odds = self.odds_repo.get_latest_for_game(game_id)
+            if fresh_odds and fresh_odds.spread_team1 == new_spread:
+                self.status_bar.setText(f"Spread updated to {new_spread:+} for {game.game_name}.")
+                self.status_bar.setStyleSheet("color: green; padding: 5px;")
+            else:
+                self.status_bar.setText(f"Warning: Spread may not have updated correctly.")
+                self.status_bar.setStyleSheet("color: orange; padding: 5px;")
+
+            # Force immediate refresh of UI
             self.load_data(show_status=False)
             
         except Exception as e:

@@ -15,7 +15,7 @@ class AboutDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("About BowlBets")
+        self.setWindowTitle("About LineLock")
         self.resize(800, 600)
         self._init_ui()
 
@@ -53,7 +53,7 @@ class AboutDialog(QDialog):
         layout = QVBoxLayout()
 
         # App name and version
-        title = QLabel("BowlBets")
+        title = QLabel("LineLock")
         title.setFont(QFont("Arial", 24, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
@@ -66,9 +66,8 @@ class AboutDialog(QDialog):
 
         # Description
         desc = QLabel(
-            "A college football bowl game betting tracker for two people.\n\n"
-            "Track spreads, over/under bets, and compete with a friend "
-            "throughout the bowl season!"
+            "Lock in your lines. Track your picks. Win the season.\n\n"
+            "A college football bowl game betting tracker for two people."
         )
         desc.setWordWrap(True)
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -95,7 +94,7 @@ class AboutDialog(QDialog):
         credits = QLabel(
             "Built with Python & PyQt6<br>"
             "Data provided by collegefootballdata.com<br><br>"
-            "© 2024 BowlBets"
+            "© 2025 LineLock"
         )
         credits.setAlignment(Qt.AlignmentFlag.AlignCenter)
         credits.setStyleSheet("color: #888; font-size: 10px; margin-top: 20px;")

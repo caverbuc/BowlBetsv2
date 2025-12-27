@@ -37,7 +37,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='BowlBets',
+    name='LineLock',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -55,15 +55,15 @@ exe = EXE(
 # For macOS, create an .app bundle
 app = BUNDLE(
     exe,
-    name='BowlBets.app',
-    icon=None,
-    bundle_identifier='com.bowlbets.app',
+    name='LineLock.app',
+    icon='icon.ico',
+    bundle_identifier='com.linelock.app',
     info_plist={
         'NSHighResolutionCapable': 'True',
-        'CFBundleName': 'BowlBets',
-        'CFBundleDisplayName': 'BowlBets',
+        'CFBundleName': 'LineLock',
+        'CFBundleDisplayName': 'LineLock',
         'CFBundleVersion': '2.0.0',
         'CFBundleShortVersionString': '2.0',
-        'NSHumanReadableCopyright': '© 2024 BowlBets',
+        'NSHumanReadableCopyright': '© 2025 LineLock',
     },
 )
