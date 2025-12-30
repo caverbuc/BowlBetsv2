@@ -34,7 +34,7 @@ class SyncWorker(QObject):
             cfd_key = self.settings.value("api_keys/cfd", "")
 
             if not cfd_key:
-                self.finished.emit(False, "Missing CollegeFootballData API Key.")
+                self.finished.emit(False, "Missing CollegeFootballData API Key.", [])
                 return
 
             cfd_api = CollegeFootballDataAPI(cfd_key)
